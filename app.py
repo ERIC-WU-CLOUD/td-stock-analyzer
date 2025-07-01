@@ -22,6 +22,20 @@ def init_tushare():
         st.error(f"初始化Tushare失败: {e}")
         return None
 
+def check_trade_date(date_str):
+    """检查是否为交易日"""
+    try:
+        pro = init_tushare()
+        if pro is None:
+            return True  # 如果无法验证，默认返回True
+        
+        trade_cal = pro.trade_cal(exchange='SSE', start_date=date_str, end_date=date_str)
+        if len(trade_cal) > 0 and trade_cal.iloc[0]['is_open'] == 1:
+            return True
+        return False
+    except Exception as e:
+        return True  # 出错时默认返回True
+
 def get_latest_trade_date():
     """获取最近的交易日"""
     try:
@@ -218,13 +232,63 @@ def main():
     with st.sidebar:
         st.header("⚙️ 设置")
         
-        # 获取交易日
+        # 日期选择
+        st.subheader("📅 交易日期")
+        
+        # 获取最新交易日作为默认值
         try:
             latest_date = get_latest_trade_date()
-            st.success(f"📅 交易日: {latest_date}")
+            default_date = datetime.strptime(latest_date, '%Y%m%d').date()
         except:
+            default_date = datetime.now().date()
             latest_date = datetime.now().strftime('%Y%m%d')
-            st.warning(f"📅 使用日期: {latest_date}")
+        
+        # 日期选择方式
+        date_option = st.radio(
+            "选择日期方式",
+            ["使用最新交易日", "手动选择日期"],
+            index=0
+        )
+        
+        if date_option == "使用最新交易日":
+            selected_date = latest_date
+            st.success(f"📅 最新交易日: {selected_date}")
+        else:
+            # 手动选择日期
+            manual_date = st.date_input(
+                "选择分析日期",
+                value=default_date,
+                min_value=datetime(2020, 1, 1).date(),
+                max_value=datetime.now().date(),
+                help="选择要分析的交易日期"
+            )
+            selected_date = manual_date.strftime('%Y%m%d')
+            
+            # 验证是否为交易日
+            if st.button("🔍 验证交易日", key="check_date"):
+                with st.spinner("验证中..."):
+                    if check_trade_date(selected_date):
+                        st.success(f"✅ {selected_date} 是交易日")
+                    else:
+                        st.error(f"❌ {selected_date} 不是交易日，请重新选择")
+                        # 获取最近的交易日建议
+                        try:
+                            pro = init_tushare()
+                            if pro:
+                                nearby_dates = pro.trade_cal(
+                                    exchange='SSE', 
+                                    start_date=(manual_date - timedelta(days=7)).strftime('%Y%m%d'),
+                                    end_date=(manual_date + timedelta(days=7)).strftime('%Y%m%d'),
+                                    is_open=1
+                                )
+                                if len(nearby_dates) > 0:
+                                    st.info("📅 附近的交易日:")
+                                    for _, row in nearby_dates.head(3).iterrows():
+                                        st.write(f"• {row['cal_date']}")
+                        except:
+                            pass
+            
+            st.info(f"📅 选择的日期: {selected_date}")
         
         # 筛选参数
         st.subheader("🎯 筛选条件")
@@ -241,7 +305,7 @@ def main():
         if st.button("🚀 开始筛选", type="primary"):
             with st.spinner("筛选中..."):
                 try:
-                    result = filter_stocks(latest_date, max_price, min_turnover, min_market_cap)
+                    result = filter_stocks(selected_date, max_price, min_turnover, min_market_cap)
                     
                     if result is not None and len(result) > 0:
                         st.success(f"找到 {len(result)} 只股票")
