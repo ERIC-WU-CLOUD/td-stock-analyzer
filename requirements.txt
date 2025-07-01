@@ -1,2 +1,6 @@
-streamlit
-tushare
+streamlit==1.39.0
+tushare==1.2.89
+pandas==2.1.4
+numpy==1.24.4
+plotly==5.17.0
+scipy==1.11.4
