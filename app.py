@@ -1,426 +1,223 @@
-import streamlit as st
-import tushare as ts
-from datetime import datetime, timedelta
-import time
-
-# 页面配置
-st.set_page_config(
-    page_title="TD股票分析系统",
-    page_icon="📈",
-    layout="wide"
-)
-
-# 设置tushare token
-TOKEN = '27fab716cc7ea549b52a8345e43cfa9be8daa8976ca6fdfe2c4a1d3e'
-
-def init_tushare():
-    """初始化tushare"""
-    try:
-        ts.set_token(TOKEN)
-        return ts.pro_api(TOKEN)
-    except Exception as e:
-        st.error(f"初始化Tushare失败: {e}")
-        return None
-
-def check_trade_date(date_str):
-    """检查是否为交易日"""
-    try:
-        pro = init_tushare()
-        if pro is None:
-            return True  # 如果无法验证，默认返回True
+4. **成交量确认** (18分)：爆量=18分，放量=12分
+        5. **均线趋势** (12分)：多头排列加分，空头排列减分
+        6. **市场强度** (8分)：整体市场环境调整
         
-        trade_cal = pro.trade_cal(exchange='SSE', start_date=date_str, end_date=date_str)
-        if len(trade_cal) > 0 and trade_cal.iloc[0]['is_open'] == 1:
-            return True
-        return False
-    except Exception as e:
-        return True  # 出错时默认返回True
-
-def get_latest_trade_date():
-    """获取最近的交易日"""
-    try:
-        pro = init_tushare()
-        if pro is None:
-            return datetime.now().strftime('%Y%m%d')
+        ### 🎛️ 交易策略系统
         
-        today = datetime.now().strftime('%Y%m%d')
-        trade_cal = pro.trade_cal(exchange='SSE', end_date=today, is_open=1)
+        #### 💰 仓位管理建议
+        - **50-70%**: 高信心重仓（信心度≥75%）
+        - **40-50%**: 较高信心（信心度60-74%）
+        - **30-40%**: 中等信心（信心度45-59%）
+        - **20-30%**: 偏低信心（信心度35-44%）
+        - **10-20%**: 低信心试探（信心度<35%）
         
-        if len(trade_cal) > 0:
-            # 手动排序
-            trade_cal_sorted = trade_cal.sort_values('cal_date', ascending=False)
-            return trade_cal_sorted.iloc[0]['cal_date']
-        else:
-            return datetime.now().strftime('%Y%m%d')
-    except Exception as e:
-        st.error(f"获取交易日期失败: {e}")
-        return datetime.now().strftime('%Y%m%d')
-
-def get_stock_basic():
-    """获取股票基本信息"""
-    try:
-        pro = init_tushare()
-        if pro is None:
-            return None
+        #### ⏱️ 时间框架
+        - **短线 (5-15天)**: TD Setup信号
+        - **波段 (2-4周)**: TD Setup后期 + 高评分
+        - **中线 (1-3个月)**: TD Countdown信号
         
-        stock_list = pro.stock_basic(
-            exchange='', 
-            list_status='L', 
-            fields='ts_code,symbol,name,area,industry'
-        )
-        return stock_list
-    except Exception as e:
-        st.error(f"获取股票列表失败: {e}")
-        return None
-
-def get_daily_data(trade_date, ts_code):
-    """获取单只股票的日线数据"""
-    try:
-        pro = init_tushare()
-        if pro is None:
-            return None
+        #### 🎯 入场策略
+        - **激进入场**: 当前价立即入场（高分信号）
+        - **稳健入场**: 小幅回调1-1.5%后入场
+        - **保守入场**: 等待支撑位确认后入场
         
-        daily_data = pro.daily_basic(
-            ts_code=ts_code,
-            trade_date=trade_date,
-            fields='ts_code,close,turnover_rate,total_mv'
-        )
-        return daily_data
-    except Exception as e:
-        return None
-
-def filter_stocks(target_date, max_price=10, min_turnover=1.5, min_market_cap=40):
-    """筛选股票"""
-    
-    # 获取股票基本信息
-    stock_list = get_stock_basic()
-    if stock_list is None:
-        st.error("无法获取股票列表")
-        return None
-    
-    # 过滤ST股票和特殊板块
-    filtered_stocks = stock_list[
-        ~stock_list['symbol'].str.startswith(('688', '300', '8'))
-    ].copy()
-    
-    filtered_stocks = filtered_stocks[
-        ~filtered_stocks['name'].str.contains('ST', case=False, na=False)
-    ].copy()
-    
-    st.info(f"初步筛选后股票数量: {len(filtered_stocks)}")
-    
-    # 分批获取数据（减少批次大小）
-    batch_size = 20
-    all_results = []
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    # 只处理前100只股票，避免超时
-    sample_stocks = filtered_stocks.head(100)
-    
-    for i in range(0, len(sample_stocks), batch_size):
-        batch_stocks = sample_stocks.iloc[i:i+batch_size]
-        status_text.text(f"获取数据: {i//batch_size + 1}/{(len(sample_stocks)+batch_size-1)//batch_size}")
+        #### 🛡️ 风险控制
+        - **动态止损**: 基于ATR和TDST位计算
+        - **技术止损**: 关键支撑位下方
+        - **风险收益比**: 目标1:2以上
         
-        batch_results = []
+        ## 📈 图表解读指南
         
-        for _, stock in batch_stocks.iterrows():
-            daily_data = get_daily_data(target_date, stock['ts_code'])
-            
-            if daily_data is not None and len(daily_data) > 0:
-                # 合并数据
-                stock_data = stock.to_dict()
-                stock_data.update(daily_data.iloc[0].to_dict())
-                
-                # 应用筛选条件
-                try:
-                    if (stock_data.get('close', 0) < max_price and 
-                        stock_data.get('turnover_rate', 0) > min_turnover and
-                        stock_data.get('total_mv', 0) > min_market_cap * 10000):
-                        batch_results.append(stock_data)
-                except:
-                    continue
-            
-            time.sleep(0.05)  # 避免API限制
+        ### 🎨 交互式图表元素
+        - **K线图**: 红色上涨，绿色下跌
+        - **均线**: 紫色MA5，蓝色MA20
+        - **TD Setup标记**:
+          - 🔵 蓝色圆点 + 数字: 买入Setup (1-9)
+          - 🔴 红色三角 + 数字: 卖出Setup (1-9)
+        - **TD Countdown标记**:
+          - 🟦 蓝色方块 + C数字: 买入Countdown (1-13)
+          - 🟥 红色方块 + C数字: 卖出Countdown (1-13)
+        - **特殊标记**:
+          - ⭐ 金色星号: 完美设置
+          - 虚线: TDST动态支撑阻力
+          - 点线: 传统技术支撑阻力
         
-        if batch_results:
-            all_results.extend(batch_results)
+        ### 📊 图表操作技巧
+        - **缩放**: 鼠标滚轮或工具栏缩放按钮
+        - **平移**: 拖拽图表进行左右移动
+        - **悬停**: 鼠标悬停查看具体数值
+        - **图例**: 点击图例隐藏/显示指标线
+        - **重置**: 双击图表恢复默认视图
         
-        progress_bar.progress((i + batch_size) / len(sample_stocks))
-    
-    progress_bar.empty()
-    status_text.empty()
-    
-    if all_results:
-        # 转换为DataFrame并排序
-        import pandas as pd
-        result_df = pd.DataFrame(all_results)
+        ## 🔧 系统参数设置
         
-        if 'total_mv' in result_df.columns:
-            result_df = result_df.sort_values('total_mv', ascending=True)
+        ### 📅 日期设置
+        - **最新交易日**: 自动获取最近交易日数据
+        - **手动选择**: 可选择历史任意交易日
+        - **交易日验证**: 自动验证并提供附近交易日
         
-        return result_df
-    else:
-        return None
-
-def simple_analysis(ts_code, name):
-    """简单分析"""
-    try:
-        pro = init_tushare()
-        if pro is None:
-            return None
+        ### 🎯 筛选参数优化建议
+        - **股价范围**: 5-15元（平衡风险和成长性）
+        - **换手率**: 1.5-5%（确保足够流动性）
+        - **市值**: 40-200亿（避免过小风险）
         
-        # 获取最近20天数据
-        end_date = datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+        ### 📊 分析参数
+        - **图表生成**: 建议开启，提供直观分析
+        - **分析数量**: 建议3-10只，平衡效率和深度
         
-        hist_data = pro.daily(
-            ts_code=ts_code, 
-            start_date=start_date, 
-            end_date=end_date
-        )
+        ## ⚠️ 重要提示和风险说明
         
-        if len(hist_data) < 3:
-            return None
+        ### 🚨 投资风险提示
+        **⚠️ 投资有风险，入市需谨慎！**
         
-        # 排序
-        hist_data = hist_data.sort_values('trade_date')
-        latest = hist_data.iloc[-1]
+        1. **系统局限性**:
+           - TD分析是技术分析工具，不能预测未来
+           - 需要结合基本面分析和市场环境
+           - 历史表现不代表未来结果
         
-        # 简单计算
-        if len(hist_data) >= 5:
-            recent_5_avg = hist_data.tail(5)['close'].mean()
-        else:
-            recent_5_avg = latest['close']
+        2. **信号有效性**:
+           - 信号只是概率性提示，不是绝对指导
+           - 需要验证信号的后续发展
+           - 建议设置合理止损位
         
-        # 趋势判断
-        if latest['pct_chg'] > 3:
-            trend = "🚀 强势上涨"
-            score = 85
-        elif latest['pct_chg'] > 0:
-            trend = "📈 上涨"
-            score = 65
-        elif latest['pct_chg'] > -3:
-            trend = "📊 震荡"
-            score = 50
-        else:
-            trend = "📉 下跌"
-            score = 25
+        3. **资金管理**:
+           - 不要投入超过承受能力的资金
+           - 建议分散投资，控制单股仓位
+           - 严格执行止损纪律
         
-        return {
-            'code': ts_code,
-            'name': name,
-            'price': latest['close'],
-            'change': latest['pct_chg'],
-            'volume': latest['vol'],
-            'trend': trend,
-            'score': score,
-            'avg_5': recent_5_avg
-        }
+        ### 📊 数据和技术说明
         
-    except Exception as e:
-        return None
-
-def main():
-    # 标题
-    st.title("📈 TD股票分析系统")
-    st.markdown("### 简化版股票筛选与分析工具")
-    st.markdown("---")
-    
-    # 侧边栏
-    with st.sidebar:
-        st.header("⚙️ 设置")
+        #### 🔗 数据源
+        - **数据提供**: Tushare专业金融数据接口
+        - **数据质量**: 交易所官方数据，准确可靠
+        - **更新频率**: 实时更新（交易日）
+        - **数据范围**: 全市场A股数据
         
-        # 日期选择
-        st.subheader("📅 交易日期")
+        #### 💻 技术架构
+        - **前端**: Streamlit Web应用框架
+        - **数据处理**: Pandas + NumPy科学计算
+        - **图表**: Plotly交互式可视化
+        - **缓存**: 智能缓存机制，提升响应速度
         
-        # 获取最新交易日作为默认值
-        try:
-            latest_date = get_latest_trade_date()
-            default_date = datetime.strptime(latest_date, '%Y%m%d').date()
-        except:
-            default_date = datetime.now().date()
-            latest_date = datetime.now().strftime('%Y%m%d')
+        #### 🚀 性能优化
+        - **批量处理**: 分批获取数据，避免超时
+        - **智能缓存**: 缓存计算结果，减少重复计算
+        - **异步加载**: 渐进式加载，改善用户体验
         
-        # 日期选择方式
-        date_option = st.radio(
-            "选择日期方式",
-            ["使用最新交易日", "手动选择日期"],
-            index=0
-        )
+        ## 🎓 实战应用建议
         
-        if date_option == "使用最新交易日":
-            selected_date = latest_date
-            st.success(f"📅 最新交易日: {selected_date}")
-        else:
-            # 手动选择日期
-            manual_date = st.date_input(
-                "选择分析日期",
-                value=default_date,
-                min_value=datetime(2020, 1, 1).date(),
-                max_value=datetime.now().date(),
-                help="选择要分析的交易日期"
-            )
-            selected_date = manual_date.strftime('%Y%m%d')
-            
-            # 验证是否为交易日
-            if st.button("🔍 验证交易日", key="check_date"):
-                with st.spinner("验证中..."):
-                    if check_trade_date(selected_date):
-                        st.success(f"✅ {selected_date} 是交易日")
-                    else:
-                        st.error(f"❌ {selected_date} 不是交易日，请重新选择")
-                        # 获取最近的交易日建议
-                        try:
-                            pro = init_tushare()
-                            if pro:
-                                nearby_dates = pro.trade_cal(
-                                    exchange='SSE', 
-                                    start_date=(manual_date - timedelta(days=7)).strftime('%Y%m%d'),
-                                    end_date=(manual_date + timedelta(days=7)).strftime('%Y%m%d'),
-                                    is_open=1
-                                )
-                                if len(nearby_dates) > 0:
-                                    st.info("📅 附近的交易日:")
-                                    for _, row in nearby_dates.head(3).iterrows():
-                                        st.write(f"• {row['cal_date']}")
-                        except:
-                            pass
-            
-            st.info(f"📅 选择的日期: {selected_date}")
+        ### 📈 买入信号识别
+        1. **强信号条件**:
+           - TD Setup 8-9 + 完美设置
+           - TD Countdown 10-13
+           - 成交量配合放大
+           - 信号等级A级以上
         
-        # 筛选参数
-        st.subheader("🎯 筛选条件")
-        max_price = st.slider("最大股价", 5.0, 20.0, 10.0)
-        min_turnover = st.slider("最小换手率%", 0.5, 5.0, 1.5)
-        min_market_cap = st.slider("最小市值(亿)", 20, 100, 40)
-    
-    # 主界面
-    tab1, tab2 = st.tabs(["📊 股票筛选", "📈 分析"])
-    
-    with tab1:
-        st.subheader("🎯 股票筛选")
+        2. **入场时机**:
+           - Setup 9完成当日或次日
+           - Countdown 13完成确认后
+           - 回调至TDST支撑位附近
         
-        if st.button("🚀 开始筛选", type="primary"):
-            with st.spinner("筛选中..."):
-                try:
-                    result = filter_stocks(selected_date, max_price, min_turnover, min_market_cap)
-                    
-                    if result is not None and len(result) > 0:
-                        st.success(f"找到 {len(result)} 只股票")
-                        
-                        # 保存结果
-                        st.session_state.stocks = result
-                        
-                        # 显示统计
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("股票数量", len(result))
-                        with col2:
-                            if 'close' in result.columns:
-                                avg_price = result['close'].mean()
-                                st.metric("平均股价", f"{avg_price:.2f}元")
-                        with col3:
-                            if 'total_mv' in result.columns:
-                                avg_mv = result['total_mv'].mean() / 10000
-                                st.metric("平均市值", f"{avg_mv:.1f}亿")
-                        
-                        # 显示表格
-                        display_cols = ['ts_code', 'name']
-                        if 'close' in result.columns:
-                            display_cols.append('close')
-                        if 'turnover_rate' in result.columns:
-                            display_cols.append('turnover_rate')
-                        if 'total_mv' in result.columns:
-                            result_copy = result.copy()
-                            result_copy['市值(亿)'] = result_copy['total_mv'] / 10000
-                            display_cols.append('市值(亿)')
-                            st.dataframe(result_copy[display_cols].head(15), use_container_width=True)
-                        else:
-                            st.dataframe(result[display_cols].head(15), use_container_width=True)
-                    
-                    else:
-                        st.warning("未找到符合条件的股票")
-                
-                except Exception as e:
-                    st.error(f"筛选失败: {str(e)}")
-    
-    with tab2:
-        st.subheader("📈 技术分析")
+        3. **持有策略**:
+           - 设置TDST支撑位止损
+           - 分批获利了结
+           - 关注对应的卖出信号
         
-        if 'stocks' not in st.session_state:
-            st.info("请先筛选股票")
-        else:
-            stocks_df = st.session_state.stocks
-            
-            # 选择股票
-            stock_options = []
-            for _, row in stocks_df.head(10).iterrows():
-                stock_options.append(f"{row['name']} ({row['ts_code']})")
-            
-            if stock_options:
-                selected = st.selectbox("选择股票", stock_options)
-                
-                if st.button("🔍 分析"):
-                    if selected:
-                        # 提取代码
-                        code = selected.split('(')[-1].split(')')[0]
-                        name = selected.split('(')[0].strip()
-                        
-                        with st.spinner(f"分析 {name}..."):
-                            analysis = simple_analysis(code, name)
-                            
-                            if analysis:
-                                st.success("分析完成！")
-                                
-                                # 显示结果
-                                col1, col2, col3, col4 = st.columns(4)
-                                
-                                with col1:
-                                    st.metric("股价", f"{analysis['price']:.2f}元")
-                                with col2:
-                                    st.metric("涨跌幅", f"{analysis['change']:.2f}%")
-                                with col3:
-                                    st.metric("5日均价", f"{analysis['avg_5']:.2f}元")
-                                with col4:
-                                    st.metric("评分", f"{analysis['score']}分")
-                                
-                                # 趋势分析
-                                if analysis['score'] >= 70:
-                                    st.success(f"趋势: {analysis['trend']}")
-                                elif analysis['score'] >= 50:
-                                    st.info(f"趋势: {analysis['trend']}")
-                                else:
-                                    st.warning(f"趋势: {analysis['trend']}")
-                                
-                                # 建议
-                                if analysis['score'] >= 70:
-                                    st.success("💡 建议: 可重点关注")
-                                elif analysis['score'] >= 50:
-                                    st.info("💡 建议: 适度关注")
-                                else:
-                                    st.warning("💡 建议: 谨慎操作")
-                            
-                            else:
-                                st.error("分析失败，请重试")
-            else:
-                st.warning("没有可分析的股票")
-    
-    # 说明
-    with st.expander("📚 使用说明"):
-        st.markdown("""
-        ### 功能说明
-        - **股票筛选**: 根据价格、换手率、市值筛选股票
-        - **技术分析**: 简单的趋势判断和评分
+        ### 📉 卖出信号识别
+        1. **强信号条件**:
+           - TD Setup -8/-9 + 完美设置
+           - TD Countdown -10/-13
+           - 高位放量下跌
+           - 信号等级A级以上
         
-        ### 筛选条件
-        - 排除科创板(688)、创业板(300)、北交所(8)
-        - 排除ST股票
-        - 根据设定条件筛选
+        2. **操作策略**:
+           - 持仓减仓或获利了结
+           - 设置TDST阻力位反弹止损
+           - 避免新开多头仓位
         
-        ### 风险提示
-        ⚠️ 本工具仅供参考，投资有风险，入市需谨慎！
+        ### 🎯 实战注意事项
+        1. **信号确认**:
+           - 等待信号完全形成
+           - 关注成交量配合
+           - 结合市场环境判断
+        
+        2. **风险管理**:
+           - 严格执行止损纪律
+           - 控制单次投资比例
+           - 保持理性投资心态
+        
+        3. **长期跟踪**:
+           - 建立投资记录
+           - 总结成功失败经验
+           - 持续优化投资策略
+        
+        ## 📞 技术支持和更新
+        
+        ### 🆘 常见问题解决
+        
+        **Q: 数据获取失败怎么办？**
+        A: 
+        - 检查网络连接状态
+        - 稍后重试，可能是API限制
+        - 减少同时分析的股票数量
+        
+        **Q: 图表不显示怎么办？**
+        A:
+        - 确保开启了"生成交互式图表"选项
+        - 刷新页面重新生成
+        - 检查浏览器兼容性
+        
+        **Q: 分析结果差异大怎么办？**
+        A:
+        - TD分析具有一定主观性
+        - 建议结合多个指标确认
+        - 关注市场整体环境变化
+        
+        **Q: 如何提高分析准确性？**
+        A:
+        - 关注信号等级A级以上
+        - 重视完美设置和成交量配合
+        - 结合基本面分析
+        - 控制好仓位和止损
+        
+        ### 🔄 系统更新计划
+        - 持续优化算法准确性
+        - 增加更多技术指标
+        - 改善用户界面体验
+        - 扩展数据分析维度
+        
+        ### 💡 使用技巧总结
+        
+        1. **高效使用流程**:
+           ```
+           设置参数 → 筛选股票 → TD分析 → 查看报告 → 制定策略
+           ```
+        
+        2. **关键信号优先级**:
+           ```
+           Countdown 13 > Setup 9 + 完美设置 > Setup 8-9 > Countdown 10-12
+           ```
+        
+        3. **风险控制原则**:
+           ```
+           资金管理 > 止损纪律 > 信号确认 > 分散投资
+           ```
+        
+        ---
+        
+        ### 🎉 感谢使用增强版TD股票分析系统！
+        
+        本系统集成了专业的TD序列分析理论和现代化的Web技术，
+        为投资者提供专业、准确、易用的技术分析工具。
+        
+        **祝您投资顺利，收益满满！** 📈💰
+        
+        ---
+        
+        #### 📄 免责声明
+        本系统提供的所有分析结果仅供参考，不构成投资建议。
+        用户应当根据自身情况和风险承受能力，独立做出投资决策。
+        系统开发者不对任何投资损失承担责任。
         """)
 
 if __name__ == "__main__":
